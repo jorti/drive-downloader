@@ -149,11 +149,11 @@ def main(argv):
                 id = file['id']
                 while True:
                     path = os.path.join(file['title'], path)
-                    if file['parents'][0]['isRoot']:                
+                    if file['parents'][0]['isRoot']:
                         path = os.path.join(".", path)
                         break
                     else:
-                        file = get_file_from_id(files, file['parents'][0]['id'])           
+                        file = get_file_from_id(files, file['parents'][0]['id'])
                 folders_dict[id] = path
     for key in folders_dict:
         try:

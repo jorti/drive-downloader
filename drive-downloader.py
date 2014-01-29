@@ -26,6 +26,7 @@ import datetime
 import time
 import shutil
 import hashlib
+import argparse
 
 from apiclient.discovery import build
 from apiclient import errors
@@ -36,15 +37,7 @@ from oauth2client.file import Storage
 class Drive:
     """ The Drive class represents the whole Drive unit
     """
-    WORKING_DIR = os.getcwd()
-    # Put your API credentials in the same directory as this script
-    # with the name client_secret.json
-    CLIENT_SECRETS = os.path.join(os.path.abspath(os.path.dirname(__file__)),
-                                  'client_secrets.json')
-    # Authentication token
-    OAUTH2_STORAGE = os.path.join(WORKING_DIR, '.oauth2.json')
     TRASH_FOLDER = u'.Trash'
-
     IGNORE_MIMETYPES = {u'application/vnd.google-apps.audio',
                         u'application/vnd.google-apps.document',
                         u'application/vnd.google-apps.drawing',
@@ -62,7 +55,7 @@ class Drive:
                         }
 
 
-    def __init__(self, oauth2_storage=OAUTH2_STORAGE, client_secrets=CLIENT_SECRETS):
+    def __init__(self, oauth2_storage, client_secrets):
         # Check https://developers.google.com/drive/scopes for all available scopes
         OAUTH_SCOPE = 'https://www.googleapis.com/auth/drive'
         # Redirect URI for installed apps
@@ -151,21 +144,26 @@ class Drive:
     def isTrashed(self, file):
         """ Returns True or False if the file is in the Trash
         """
-        return file['labels']['trashed']
+        return file.get('labels')['trashed']
 
 
     def parentIsRoot(self, file):
         """ Returns True if parent folder is Root
         """
         if file['parents']:
-            return file['parents'][0]['isRoot']
+            return file.get('parents')[0]['isRoot']
         else:
             return False
 
     def get_file_from_id(self, id):
+        """ Searchs in the list of files and returns the one which
+        matches the ID.
+        Returns None if not found
+        """
         for file in self.files:
-            if file['id'] == id:
+            if file.get('id') == id:
                 return file
+        return None
 
     def get_path(self, file):
         """ Returns the Drive path of a file, with the name of the file included
@@ -193,7 +191,6 @@ class Drive:
             f.close()
             # Set mtime to match Drive
             os.utime(file_path, (time.mktime(mtime), time.mktime(mtime)))
-            #os.utime(file_path,(time.mktime(datetime.now().timetuple()),time.mktime(mtime)))
         except IOError:
             print "IOError writing file: %s" % file_path
 
@@ -205,8 +202,6 @@ class Drive:
         except IOError:
             print "Error moving file %s to %s" % path, dst_path
 
-    """def purge_all_files(self):
-        os.path.walk("""
 
     def download_all(self):
         for file in self.files:
@@ -215,13 +210,13 @@ class Drive:
                 mtime = self.get_time(file)
                 if os.path.isfile(path):
                     if files_match(path, mtime, file.get('md5Checksum')):
-                        print "File %s has not been modified, skipping." % path
+                        print "Skipping unmodified file: %s" % path
                         continue
                     else:
                         if os.path.basename(path) != self.TRASH_FOLDER:
                             print "File %s exists and it's different, making backup." % path
                             self.backup_file(path)
-                print "Downloading file %s" % path
+                print "Downloading file: %s" % path
                 content = self.download_file(file)
                 if content is not None:
                     self.save_file(content, path, mtime)
@@ -251,11 +246,40 @@ def files_match(path, mtime, md5sum):
 
 
 def main(argv):
-    drive = Drive()
+    client_secrets_default = os.path.join(os.path.abspath(os.path.dirname(__file__)),
+                                          "client_secrets.json")
+    client_secrets_help = """JSON file with your Google Drive API credentials.
+    https://developers.google.com/drive/web/about-auth
+    (default: client_secrets.json)"""
+    
+    working_dir_default = os.getcwd()
+    working_dir_help = """Root directory to download your Drive content.
+    (default: the current directory)"""
+    
+    oauth2_filename = ".oauth2.json"
+    
+    program_description = """Drive downloader is a program to download the
+    contents of your Google Drive account."""
+    
+    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description=program_description)
+    parser.add_argument("-w", "--working-dir", help=working_dir_help,
+                        default=working_dir_default)
+    parser.add_argument("-c", "--client-secrets", help=client_secrets_help,
+                        default=client_secrets_default)
+    args = parser.parse_args()
+    
+    print "Working dir: %s" % os.path.abspath(args.working_dir)
+    print "Client secrets: %s" % args.client_secrets
+    oauth2_storage = os.path.join(os.path.abspath(args.working_dir), oauth2_filename)
+
+    os.chdir(os.path.abspath(args.working_dir))
+    drive = Drive(oauth2_storage=oauth2_storage,
+                  client_secrets=os.path.abspath(args.client_secrets))
     drive.authorize()
     drive.get_filelist()
     drive.download_all()
-
+    os.chdir(working_dir_default)
 
 if __name__ == '__main__':
     main(sys.argv)

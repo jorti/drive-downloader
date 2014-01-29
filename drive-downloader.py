@@ -38,6 +38,7 @@ class Drive:
     """ The Drive class represents the whole Drive unit
     """
     TRASH_FOLDER = u'.Trash'
+    BACKUP_FOLDER = u'.Backups'
     IGNORE_MIMETYPES = {u'application/vnd.google-apps.audio',
                         u'application/vnd.google-apps.document',
                         u'application/vnd.google-apps.drawing',
@@ -91,7 +92,7 @@ class Drive:
         Returns:
           List of File resources.
         """
-        self.files = []
+        self.drive_files = []
         page_token = None
         while True:
             try:
@@ -100,7 +101,7 @@ class Drive:
                     param['pageToken'] = page_token
                 result = self.drive_service.files().list(**param).execute()
 
-                self.files.extend(result['items'])
+                self.drive_files.extend(result['items'])
                 page_token = result.get('nextPageToken')
                 if not page_token:
                     break
@@ -136,49 +137,49 @@ class Drive:
             # The file doesn't have any content stored on Drive.
             return None
 
-    def get_time(self, file):
+    def get_time(self, drive_file):
         """ Returns a datetime object with the modified date of the file
         """
-        return time.strptime(file.get('modifiedDate'),'%Y-%m-%dT%H:%M:%S.%fZ')
+        return time.strptime(drive_file.get('modifiedDate'),'%Y-%m-%dT%H:%M:%S.%fZ')
 
-    def isTrashed(self, file):
+    def isTrashed(self, drive_file):
         """ Returns True or False if the file is in the Trash
         """
-        return file.get('labels')['trashed']
+        return drive_file.get('labels')['trashed']
 
 
-    def parentIsRoot(self, file):
+    def parentIsRoot(self, drive_file):
         """ Returns True if parent folder is Root
         """
-        if file['parents']:
-            return file.get('parents')[0]['isRoot']
+        if drive_file['parents']:
+            return drive_file.get('parents')[0]['isRoot']
         else:
             return False
 
-    def get_file_from_id(self, id):
+    def get_drive_file_from_id(self, id):
         """ Searchs in the list of files and returns the one which
         matches the ID.
         Returns None if not found
         """
-        for file in self.files:
-            if file.get('id') == id:
-                return file
+        for drive_file in self.drive_files:
+            if drive_file.get('id') == id:
+                return drive_file
         return None
 
-    def get_path(self, file):
-        """ Returns the Drive path of a file, with the name of the file included
+    def get_path(self, drive_file):
+        """ Returns the path of a file, with the name of the file included
         """
-        if self.isTrashed(file):
-            return os.path.join(self.TRASH_FOLDER, file.get('title'))
-        elif self.parentIsRoot(file):
-            return file.get('title')
+        if self.isTrashed(drive_file):
+            return os.path.join(self.TRASH_FOLDER, drive_file.get('title'))
+        elif self.parentIsRoot(drive_file):
+            return drive_file.get('title')
         else:
-            return os.path.join(self.get_path(self.get_file_from_id(file.get('parents')[0]['id'])),
-                                file.get('title'))
+            return os.path.join(self.get_path(self.get_drive_file_from_id(drive_file.get('parents')[0]['id'])),
+                                drive_file.get('title'))
 
 
     def save_file(self, content, file_path, mtime):
-        """Writes to disk the given content, it needs the path and the modified
+        """Writes to disk the given content, it needs the path and the modification
         time of the file
         """
         try:
@@ -194,35 +195,47 @@ class Drive:
         except IOError:
             print "IOError writing file: %s" % file_path
 
-    def backup_file(self, path):
+    def backup_file(self, file_path):
+        """Backups an existing file to BACKUP_FOLDER
+        """
+        if not os.path.isdir(self.BACKUP_FOLDER):
+            try:
+                os.makedirs(self.BACKUP_FOLDER,  0700)
+            except OSError:
+                print "Error creating folder: %s" % self.BACKUP_FOLDER
+        backup_date = datetime.datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
+        dst_path = os.path.join(self.BACKUP_FOLDER, backup_date + "-" + os.path.basename(file_path))
         try:
-            backup_date = datetime.datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
-            dst_path = os.path.join(self.TRASH_FOLDER, backup_date + "-" + os.path.basename(path))
-            shutil.move(path, dst_path)
+            shutil.move(file_path, dst_path)
         except IOError:
-            print "Error moving file %s to %s" % path, dst_path
+            print "Error moving file %s to %s" % file_path, dst_path
 
 
     def download_all(self):
-        for file in self.files:
-            if file.get('mimeType') not in self.IGNORE_MIMETYPES:
-                path = self.get_path(file)
-                mtime = self.get_time(file)
-                if os.path.isfile(path):
-                    if files_match(path, mtime, file.get('md5Checksum')):
-                        print "Skipping unmodified file: %s" % path
+        """Downloads all the files retrieved from Drive
+        """
+        for drive_file in self.drive_files:
+            if drive_file.get('mimeType') not in self.IGNORE_MIMETYPES:
+                file_path = self.get_path(drive_file)
+                mtime = self.get_time(drive_file)
+                # Check if file exists locally, and if it's different,
+                # make backup and download
+                if os.path.isfile(file_path):
+                    if files_match(file_path, mtime, drive_file.get('md5Checksum')):
+                        print "Skipping unmodified file: %s" % file_path
                         continue
                     else:
-                        if os.path.basename(path) != self.TRASH_FOLDER:
-                            print "File %s exists and it's different, making backup." % path
-                            self.backup_file(path)
-                print "Downloading file: %s" % path
-                content = self.download_file(file)
+                        # FIXME:
+                        if os.path.basename(file_path) != self.TRASH_FOLDER:
+                            print "File %s exists and it's different, making backup." % file_path
+                            self.backup_file(file_path)
+                print "Downloading file: %s" % file_path
+                content = self.download_file(drive_file)
                 if content is not None:
-                    self.save_file(content, path, mtime)
+                    self.save_file(content, file_path, mtime)
 
-def md5_for_file(filePath):
-    with open(filePath, 'rb') as fh:
+def md5_for_file(file_path):
+    with open(file_path, 'rb') as fh:
         m = hashlib.md5()
         while True:
             data = fh.read(8192)
@@ -233,15 +246,16 @@ def md5_for_file(filePath):
 
 
 
-def files_match(path, mtime, md5sum):
+def files_match(file_path, mtime, md5sum):
     try:
-        md5 = md5_for_file(path)
+        md5 = md5_for_file(file_path)
     except IOError:
-        print "IOError reading file: %s" % path
+        print "IOError reading file: %s" % file_path
         return False
     if md5 == md5sum.encode('utf-8'):
-        if os.path.getmtime(path) == time.mktime(mtime):
-            return True
+        if os.path.getmtime(file_path) != time.mktime(mtime):
+            print "Warning, mtime dosn't match with Drive in file: %s" % file_path
+        return True
     return False
 
 

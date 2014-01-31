@@ -281,31 +281,38 @@ def files_match(file_path, mtime, md5sum):
     return (match_md5, match_mtime)
 
 
-def lock(lockfile):
-    if os.path.isfile(lockfile):
+def lock():
+    global LOCK_FILE
+    if os.path.isfile(LOCK_FILE):
         return False
     else:
         try:
-            f = open(lockfile, 'a')
+            f = open(LOCK_FILE, 'a')
             f.close()
         except IOError:
             return False
         return True
         
-def unlock(lockfile):
-    if os.path.isfile(lockfile):
+def unlock():
+    global LOCK_FILE
+    if os.path.isfile(LOCK_FILE):
         try:
-            os.remove(lockfile)
+            os.remove(LOCK_FILE)
         except IOError:
             return False
     return True
 
 def signal_handler(signal, frame):
-    unlock(u'.drive-downloader.lock')
+    unlock()
     sys.exit(0)
 
 
+# Global variable to be used to catch interruptions
+LOCK_FILE = u'.drive-downloader.lock'
+
+
 def main(argv):
+    global LOCK_FILE
     signal.signal(signal.SIGTERM, signal_handler)
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGHUP, signal_handler)
@@ -337,15 +344,14 @@ def main(argv):
     oauth2_storage = os.path.join(os.path.abspath(args.working_dir), oauth2_filename)
 
     os.chdir(os.path.abspath(args.working_dir))
-    LOCK_FILE = u'.drive-downloader.lock'
-    if lock(LOCK_FILE):
+    if lock():
         print "Lock file acquired"
         drive_service = Drive(oauth2_storage=oauth2_storage,
                       client_secrets=os.path.abspath(args.client_secrets))
         drive_service.authorize()
         drive_service.get_filelist()
         drive_service.download_all()
-        unlock(LOCK_FILE)
+        unlock()
     else:
         print "Failed to acquire lock file"
     os.chdir(working_dir_default)

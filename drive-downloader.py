@@ -121,10 +121,10 @@ class Drive(object):
           Returns:
         File's content if successful, None otherwise.
         """
-        """ Authenticate every request because:
-        https://code.google.com/p/google-api-python-client/issues/detail?id=231
-        """
-        self.authorize()
+        # Authenticate every request because:
+        # https://code.google.com/p/google-api-python-client/issues/detail?id=231
+        #
+        #self.authorize()
         download_url = drive_file.get('downloadUrl')
         if download_url:
             resp, content = self.drive_service._http.request(download_url)

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-Copyright 2014 Juan Orti Alcaine <j.orti.alcaine@gmail.com>
+Copyright 2014 Juan Orti Alcaine <juan.orti@miceliux.com>
 
 
 This program is free software: you can redistribute it and/or modify
@@ -39,8 +39,9 @@ from oauth2client.file import Storage
 class Drive(object):
     """ The Drive class represents the whole Drive unit
     """
-    TRASH_FOLDER = u'.Trash'
-    BACKUP_FOLDER = u'.Backups'
+    OAUTH2_STORAGE = u'.oauth2.json'
+    TRASH_FOLDER = u'./.Trash'
+    BACKUP_FOLDER = u'./.Backups'
     IGNORE_MIMETYPES = {u'application/vnd.google-apps.audio',
                         u'application/vnd.google-apps.document',
                         u'application/vnd.google-apps.drawing',
@@ -58,15 +59,15 @@ class Drive(object):
                         }
 
 
-    def __init__(self, oauth2_storage, client_secrets):
+    def __init__(self, client_secrets):
         # Check https://developers.google.com/drive/scopes for all available scopes
         OAUTH_SCOPE = 'https://www.googleapis.com/auth/drive'
         # Redirect URI for installed apps
         REDIRECT_URI = 'urn:ietf:wg:oauth:2.0:oob'
-        self.storage = Storage(oauth2_storage)
+        self.storage = Storage(self.OAUTH2_STORAGE)
         self.credentials = self.storage.get()
         if self.credentials is None:
-            print "Credentials file not found at: {storage}".format(storage=oauth2_storage)
+            print "Credentials file not found at: {storage}".format(storage=self.OAUTH2_STORAGE)
             # Run through the OAuth flow and retrieve credentials
             flow = flow_from_clientsecrets(client_secrets,
                                            scope=OAUTH_SCOPE,
@@ -206,6 +207,9 @@ class Drive(object):
                 print "Error creating folder: {dir}".format(dir=self.BACKUP_FOLDER.encode('utf-8'))
         backup_date = datetime.datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
         dst_path = os.path.join(self.BACKUP_FOLDER, backup_date + "-" + os.path.basename(file_path))
+        print "Making backup of {s} in {d}".format(
+                s=file_path.encode('utf-8'),
+                d=dst_path.encode('utf-8'))
         try:
             shutil.move(file_path, dst_path)
         except IOError:
@@ -227,17 +231,70 @@ class Drive(object):
                     if match_md5:
                         if not match_mtime:
                             print "Warning, mtime doesn't match for file: {file}".format(file=file_path.encode('utf-8'))
-                        print "Skipping unmodified file: {file}".format(file=file_path.encode('utf-8'))
+                            set_mtime(file_path, mtime)
+                        #print "Skipping unmodified file: {file}".format(file=file_path.encode('utf-8'))
                         continue
                     else:
                         if os.path.dirname(file_path) != self.TRASH_FOLDER:
-                            print "File exists and it's different, making backup of: {file}".format(file=file_path.encode('utf-8'))
+                            print "Local file {f} has been modified (Drive file md5: {m} )".format(
+                                    f=file_path.encode('utf-8'),
+                                    m=drive_file.get('md5Checksum').encode('utf-8'))
                             self.backup_file(file_path)
                 print "Downloading file: {file}".format(file=file_path.encode('utf-8'))
                 content = self.download_file(drive_file)
                 if content is not None:
                     self.save_file(content, file_path, mtime)
         print "Download finished."
+
+    def file_exists_in_drive(self, file_path):
+        """Check if a local file exits in Drive
+        returns a boolean"""
+        md5 = md5_for_file(file_path)
+        exists = False
+        for f in self.drive_files:
+            if f.get('md5Checksum') == md5.encode('utf-8') and \
+                    os.path.abspath(self.get_path(f)) == os.path.abspath(file_path):
+                exists = True
+        return exists
+
+    def is_system_file(self, file):
+        """Returns true if it is a system file, otherwise, false"""
+        sysfiles = [ self.OAUTH2_STORAGE, LOCK_FILE, u'.directory' ]
+        for f in sysfiles:
+            if file == f:
+                return True
+        return False
+
+    def is_system_dir(self, dir):
+        """Returns true if it is a system dir, otherwise, false"""
+        sysdirs = [ self.TRASH_FOLDER, self.BACKUP_FOLDER ]
+        for d in sysdirs:
+            if dir == d:
+                return True
+        return False
+
+    def clean_local_tree(self):
+        """Remove local files not present on Drive"""
+        for root, dirs, files in os.walk(u'.'):
+            if self.is_system_dir(root):
+                continue
+            for f in files:
+                file_path=os.path.join(root, f)
+                if root == u'.' and self.is_system_file(f):
+                    continue
+                if self.file_exists_in_drive(file_path):
+                    continue
+                else:
+                    self.backup_file(file_path)
+        for root, dirs, files in os.walk(u'.'):
+            for d in dirs:
+                if root == u'.' and self.is_system_dir(d):
+                    continue
+                try:
+                    os.rmdir(os.path.join(root, d))
+                except OSError:
+                    pass
+
 
 
 def set_mtime(file_path, mtime):
@@ -307,7 +364,7 @@ def signal_handler(signal, frame):
     sys.exit(0)
 
 
-# Global variable to be used to catch interruptions
+# Global variable used to catch interruptions
 LOCK_FILE = u'.drive-downloader.lock'
 
 
@@ -326,8 +383,6 @@ def main(argv):
     working_dir_help = """Root directory to download your Drive content.
     (default: the current directory)"""
     
-    oauth2_filename = ".oauth2.json"
-    
     program_description = """Drive downloader is a program to download the
     contents of your Google Drive account."""
     
@@ -341,17 +396,24 @@ def main(argv):
     
     print "Working dir: {dir}".format(dir=os.path.abspath(args.working_dir))
     print "Client secrets: {secrets}".format(secrets=args.client_secrets)
-    oauth2_storage = os.path.join(os.path.abspath(args.working_dir), oauth2_filename)
 
     os.chdir(os.path.abspath(args.working_dir))
     if lock():
         print "Lock file acquired"
-        drive_service = Drive(oauth2_storage=oauth2_storage,
-                      client_secrets=os.path.abspath(args.client_secrets))
-        drive_service.authorize()
-        drive_service.get_filelist()
-        drive_service.download_all()
-        unlock()
+        try:
+            drive_service = Drive(client_secrets=os.path.abspath(args.client_secrets))
+            print "Authorizing..."
+            drive_service.authorize()
+            print "Retrieving file list..."
+            drive_service.get_filelist()
+            print "Cleaning local tree..."
+            drive_service.clean_local_tree()
+            print "Downloading files..."
+            drive_service.download_all()
+            unlock()
+        except:
+            unlock()
+            raise
     else:
         print "Failed to acquire lock file"
     os.chdir(working_dir_default)

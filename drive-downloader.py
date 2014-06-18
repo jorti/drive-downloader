@@ -42,7 +42,7 @@ class Drive(object):
     OAUTH2_STORAGE = u'.oauth2.json'
     TRASH_FOLDER = u'./.Trash'
     BACKUP_FOLDER = u'./.Backups'
-    IGNORE_MIMETYPES = {u'application/vnd.google-apps.audio',
+    IGNORE_MIMETYPES = frozenset([u'application/vnd.google-apps.audio',
                         u'application/vnd.google-apps.document',
                         u'application/vnd.google-apps.drawing',
                         u'application/vnd.google-apps.file',
@@ -56,7 +56,7 @@ class Drive(object):
                         u'application/vnd.google-apps.spreadsheet',
                         u'application/vnd.google-apps.unknown',
                         u'application/vnd.google-apps.video'
-                        }
+                        ])
 
 
     def __init__(self, client_secrets):

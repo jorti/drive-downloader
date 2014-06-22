@@ -191,16 +191,20 @@ class Drive(object):
         """
         try:
             os.makedirs(os.path.dirname(file_path),  0700)
-        except OSError:
-            print("Error creating folder: {path}".format(path=file_path.encode('utf-8')))
+        except OSError as e:
+            print("Error {n} creating folder {f}: {s}".format(n=e.errno,
+                f=e.filename, s=e.strerror))
         try:
             f = open(file_path, 'w')
             f.write(content)
             f.close()
             # Set mtime to match Drive
             set_mtime(file_path, mtime)
-        except IOError:
-            print("IOError writing file: {path}".format(path=file_path.encode('utf-8')))
+        except IOError as e:
+            print("Error {n} writing file {f}: {e}".format(
+                n=e.errno,
+                f=e.filename,
+                e=e.strerror))
 
     def backup_file(self, file_path):
         """Backups an existing file to BACKUP_FOLDER
@@ -208,18 +212,22 @@ class Drive(object):
         if not os.path.isdir(self.BACKUP_FOLDER):
             try:
                 os.makedirs(self.BACKUP_FOLDER,  0700)
-            except OSError:
-                print("Error creating folder: {dir}".format(dir=self.BACKUP_FOLDER.encode('utf-8')))
+            except OSError as e:
+                print("Error {n} creating folder {f}: {s}".format(n=e.errno,
+                    f=e.filename, s=e.strerror))
         backup_date = datetime.datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
         dst_path = os.path.join(self.BACKUP_FOLDER, backup_date + "-" + os.path.basename(file_path))
         print("Making backup of {s} in {d}".format(
-                s=file_path.encode('utf-8'),
-                d=dst_path.encode('utf-8')))
+                s=file_path,
+                d=dst_path))
         try:
             shutil.move(file_path, dst_path)
-        except IOError:
-            print("Error moving file {src} to {dst}".format(src=file_path.encode('utf-8'),
-                                                            dst=dst_path.encode('utf-8')))
+        except IOError as e:
+            print("Error {n} moving file {src} to {dst}: {e}".format(
+                n=e.errno,
+                src=file_path,
+                dst=dst_path,
+                e=e.strerror))
 
 
     def download_all(self):
@@ -235,16 +243,16 @@ class Drive(object):
                     (match_md5, match_mtime) = files_match(file_path, mtime, drive_file.get('md5Checksum'))
                     if match_md5:
                         if not match_mtime:
-                            print("Warning, mtime doesn't match for file: {file}".format(file=file_path.encode('utf-8')))
+                            print("Warning, mtime doesn't match for file: {file}".format(file=file_path))
                             set_mtime(file_path, mtime)
                         continue
                     else:
                         if os.path.dirname(file_path) != self.TRASH_FOLDER:
                             print("Local file {f} has been modified (Drive file md5: {m} )".format(
-                                    f=file_path.encode('utf-8'),
-                                    m=drive_file.get('md5Checksum').encode('utf-8')))
+                                    f=file_path,
+                                    m=drive_file.get('md5Checksum')))
                             self.backup_file(file_path)
-                print("Downloading file: {file}".format(file=file_path.encode('utf-8')))
+                print("Downloading file: {file}".format(file=file_path))
                 content = self.download_file(drive_file)
                 if content is not None:
                     self.save_file(content, file_path, mtime)
@@ -256,7 +264,7 @@ class Drive(object):
         md5 = md5_for_file(file_path)
         exists = False
         for f in self.drive_files:
-            if f.get('md5Checksum') == md5.encode('utf-8') and \
+            if f.get('md5Checksum') == md5 and \
                     os.path.abspath(self.get_path(f)) == os.path.abspath(file_path):
                 exists = True
         return exists
@@ -328,10 +336,13 @@ def files_match(file_path, mtime, md5sum):
     """
     try:
         md5 = md5_for_file(file_path)
-    except IOError:
-        print("IOError reading file: {file}".format(file=file_path.encode('utf-8')))
+    except IOError as e:
+        print("Error {n} reading file {f}: {e}".format(
+            n=e.errno,
+            f=e.filename,
+            e=e.strerror))
         return False
-    if md5 == md5sum.encode('utf-8'):
+    if md5 == md5sum:
         match_md5 = True
     else:
         match_md5 = False

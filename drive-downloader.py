@@ -19,6 +19,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
+from __future__ import print_function
 import sys
 import argparse
 import httplib2
@@ -57,6 +58,11 @@ class Drive(object):
                         u'application/vnd.google-apps.unknown',
                         u'application/vnd.google-apps.video'
                         ])
+    CONVERT_TABLE = {u'application/vnd.google-apps.document': u'application/vnd.oasis.opendocument.text',
+                     u'application/vnd.google-apps.spreadsheet': u'application/x-vnd.oasis.opendocument.spreadsheet',
+                     u'application/vnd.google-apps.drawing': u'image/svg+xml',
+                     u'application/vnd.google-apps.presentation': u'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+                     }
 
 
     def __init__(self, client_secrets):
@@ -67,13 +73,13 @@ class Drive(object):
         self.storage = Storage(self.OAUTH2_STORAGE)
         self.credentials = self.storage.get()
         if self.credentials is None:
-            print "Credentials file not found at: {storage}".format(storage=self.OAUTH2_STORAGE)
+            print("Credentials file not found at: {storage}".format(storage=self.OAUTH2_STORAGE))
             # Run through the OAuth flow and retrieve credentials
             flow = flow_from_clientsecrets(client_secrets,
                                            scope=OAUTH_SCOPE,
                                            redirect_uri=REDIRECT_URI)
             authorize_url = flow.step1_get_authorize_url()
-            print "Go to the following link in your browser: {url}".format(url=authorize_url)
+            print("Go to the following link in your browser: {url}".format(url=authorize_url))
             code = raw_input('Enter verification code: ').strip()
             self.credentials = flow.step2_exchange(code)
             self.storage.put(self.credentials)
@@ -108,7 +114,7 @@ class Drive(object):
                 if not page_token:
                     break
             except errors.HttpError, error:
-                print 'An error occurred: {e}'.format(e=error)
+                print("An error occurred: {e}".format(e=error))
                 break
 
 
@@ -130,10 +136,9 @@ class Drive(object):
         if download_url:
             resp, content = self.drive_service._http.request(download_url)
             if resp.status == 200:
-                #print 'Status: %s' % resp
                 return content
             else:
-                print 'An error occurred: {e}'.format(e=resp)
+                print("An error occurred: {e}".format(e=resp))
                 return None
         else:
             # The file doesn't have any content stored on Drive.
@@ -187,7 +192,7 @@ class Drive(object):
         try:
             os.makedirs(os.path.dirname(file_path),  0700)
         except OSError:
-            "Error creating folder: {path}".format(path=file_path.encode('utf-8'))
+            print("Error creating folder: {path}".format(path=file_path.encode('utf-8')))
         try:
             f = open(file_path, 'w')
             f.write(content)
@@ -195,7 +200,7 @@ class Drive(object):
             # Set mtime to match Drive
             set_mtime(file_path, mtime)
         except IOError:
-            print "IOError writing file: {path}".format(path=file_path.encode('utf-8'))
+            print("IOError writing file: {path}".format(path=file_path.encode('utf-8')))
 
     def backup_file(self, file_path):
         """Backups an existing file to BACKUP_FOLDER
@@ -204,17 +209,17 @@ class Drive(object):
             try:
                 os.makedirs(self.BACKUP_FOLDER,  0700)
             except OSError:
-                print "Error creating folder: {dir}".format(dir=self.BACKUP_FOLDER.encode('utf-8'))
+                print("Error creating folder: {dir}".format(dir=self.BACKUP_FOLDER.encode('utf-8')))
         backup_date = datetime.datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
         dst_path = os.path.join(self.BACKUP_FOLDER, backup_date + "-" + os.path.basename(file_path))
-        print "Making backup of {s} in {d}".format(
+        print("Making backup of {s} in {d}".format(
                 s=file_path.encode('utf-8'),
-                d=dst_path.encode('utf-8'))
+                d=dst_path.encode('utf-8')))
         try:
             shutil.move(file_path, dst_path)
         except IOError:
-            print "Error moving file {src} to {dst}".format(src=file_path.encode('utf-8'),
-                                                            dst=dst_path.encode('utf-8'))
+            print("Error moving file {src} to {dst}".format(src=file_path.encode('utf-8'),
+                                                            dst=dst_path.encode('utf-8')))
 
 
     def download_all(self):
@@ -230,21 +235,20 @@ class Drive(object):
                     (match_md5, match_mtime) = files_match(file_path, mtime, drive_file.get('md5Checksum'))
                     if match_md5:
                         if not match_mtime:
-                            print "Warning, mtime doesn't match for file: {file}".format(file=file_path.encode('utf-8'))
+                            print("Warning, mtime doesn't match for file: {file}".format(file=file_path.encode('utf-8')))
                             set_mtime(file_path, mtime)
-                        #print "Skipping unmodified file: {file}".format(file=file_path.encode('utf-8'))
                         continue
                     else:
                         if os.path.dirname(file_path) != self.TRASH_FOLDER:
-                            print "Local file {f} has been modified (Drive file md5: {m} )".format(
+                            print("Local file {f} has been modified (Drive file md5: {m} )".format(
                                     f=file_path.encode('utf-8'),
-                                    m=drive_file.get('md5Checksum').encode('utf-8'))
+                                    m=drive_file.get('md5Checksum').encode('utf-8')))
                             self.backup_file(file_path)
-                print "Downloading file: {file}".format(file=file_path.encode('utf-8'))
+                print("Downloading file: {file}".format(file=file_path.encode('utf-8')))
                 content = self.download_file(drive_file)
                 if content is not None:
                     self.save_file(content, file_path, mtime)
-        print "Download finished."
+        print("Download finished.")
 
     def file_exists_in_drive(self, file_path):
         """Check if a local file exits in Drive
@@ -325,7 +329,7 @@ def files_match(file_path, mtime, md5sum):
     try:
         md5 = md5_for_file(file_path)
     except IOError:
-        print "IOError reading file: {file}".format(file=file_path.encode('utf-8'))
+        print("IOError reading file: {file}".format(file=file_path.encode('utf-8')))
         return False
     if md5 == md5sum.encode('utf-8'):
         match_md5 = True
@@ -394,28 +398,28 @@ def main(argv):
                         default=client_secrets_default)
     args = parser.parse_args()
     
-    print "Working dir: {dir}".format(dir=os.path.abspath(args.working_dir))
-    print "Client secrets: {secrets}".format(secrets=args.client_secrets)
+    print("Working dir: {dir}".format(dir=os.path.abspath(args.working_dir)))
+    print("Client secrets: {secrets}".format(secrets=args.client_secrets))
 
     os.chdir(os.path.abspath(args.working_dir))
     if lock():
-        print "Lock file acquired"
+        print("Lock file acquired")
         try:
             drive_service = Drive(client_secrets=os.path.abspath(args.client_secrets))
-            print "Authorizing..."
+            print("Authorizing...")
             drive_service.authorize()
-            print "Retrieving file list..."
+            print("Retrieving file list...")
             drive_service.get_filelist()
-            print "Cleaning local tree..."
+            print("Cleaning local tree...")
             drive_service.clean_local_tree()
-            print "Downloading files..."
+            print("Downloading files...")
             drive_service.download_all()
             unlock()
         except:
             unlock()
             raise
     else:
-        print "Failed to acquire lock file"
+        print("Failed to acquire lock file")
     os.chdir(working_dir_default)
 
 if __name__ == '__main__':

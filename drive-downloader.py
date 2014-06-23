@@ -44,32 +44,34 @@ class Drive(object):
     TRASH_FOLDER = u'./.Trash'
     BACKUP_FOLDER = u'./.Backups'
     IGNORE_MIMETYPES = frozenset([u'application/vnd.google-apps.audio',
-                        u'application/vnd.google-apps.document',
-                        u'application/vnd.google-apps.drawing',
+                        #u'application/vnd.google-apps.document',
+                        #u'application/vnd.google-apps.drawing',
                         u'application/vnd.google-apps.file',
                         u'application/vnd.google-apps.folder',
                         u'application/vnd.google-apps.form',
                         u'application/vnd.google-apps.fusiontable',
                         u'application/vnd.google-apps.photo',
-                        u'application/vnd.google-apps.presentation',
+                        #u'application/vnd.google-apps.presentation',
                         u'application/vnd.google-apps.script',
                         u'application/vnd.google-apps.sites',
-                        u'application/vnd.google-apps.spreadsheet',
+                        #u'application/vnd.google-apps.spreadsheet',
                         u'application/vnd.google-apps.unknown',
                         u'application/vnd.google-apps.video'
                         ])
-    CONVERT_TABLE = {u'application/vnd.google-apps.document': u'application/vnd.oasis.opendocument.text',
-                     u'application/vnd.google-apps.spreadsheet': u'application/x-vnd.oasis.opendocument.spreadsheet',
-                     u'application/vnd.google-apps.drawing': u'image/svg+xml',
-                     u'application/vnd.google-apps.presentation': u'application/vnd.openxmlformats-officedocument.presentationml.presentation'
-                     }
 
+    MIME_EXTENSIONS = {u'application/vnd.oasis.opendocument.text': u'.odt',
+                       u'application/x-vnd.oasis.opendocument.spreadsheet': u'.ods',
+                       u'image/svg+xml': u'.svg',
+                       u'application/vnd.openxmlformats-officedocument.presentationml.presentation': u'.odp',
+                       u'application/pdf': u'.pdf'
+                       }
 
-    def __init__(self, client_secrets):
+    def __init__(self, client_secrets, conversion):
         # Check https://developers.google.com/drive/scopes for all available scopes
         OAUTH_SCOPE = 'https://www.googleapis.com/auth/drive'
         # Redirect URI for installed apps
         REDIRECT_URI = 'urn:ietf:wg:oauth:2.0:oob'
+        self.conversion = conversion
         self.storage = Storage(self.OAUTH2_STORAGE)
         self.credentials = self.storage.get()
         if self.credentials is None:
@@ -132,7 +134,11 @@ class Drive(object):
         # https://code.google.com/p/google-api-python-client/issues/detail?id=231
         #
         #self.authorize()
-        download_url = drive_file.get('downloadUrl')
+        mime = drive_file.get('mimeType')
+        if mime in self.conversion.keys():
+            download_url = drive_file.get('exportLinks')[self.conversion[mime]]
+        else:
+            download_url = drive_file.get('downloadUrl')
         if download_url:
             resp, content = self.drive_service._http.request(download_url)
             if resp.status == 200:
@@ -177,23 +183,34 @@ class Drive(object):
         """ Returns the path of a file, with the name of the file included
         """
         if self.isTrashed(drive_file):
-            return os.path.join(self.TRASH_FOLDER, drive_file.get('title'))
+            file_path = os.path.join(self.TRASH_FOLDER, drive_file.get('title'))
         elif self.parentIsRoot(drive_file):
-            return drive_file.get('title')
-        else:
-            return os.path.join(self.get_path(self.get_drive_file_from_id(drive_file.get('parents')[0]['id'])),
+            file_path = drive_file.get('title')
+        elif drive_file.get('parents'):
+            parentId = drive_file.get('parents')[0]['id']
+            file_path = os.path.join(self.get_path(self.get_drive_file_from_id(parentId)),
                                 drive_file.get('title'))
+        else:
+            file_path = drive_file.get('title')
+        mime = drive_file.get('mimeType')
+        if mime in self.conversion.keys():
+            file_path = file_path + self.MIME_EXTENSIONS[self.conversion[mime]]
+        return file_path
 
 
     def save_file(self, content, file_path, mtime):
         """Writes to disk the given content, it needs the path and the modification
         time of the file
         """
-        try:
-            os.makedirs(os.path.dirname(file_path),  0700)
-        except OSError as e:
-            print("Error {n} creating folder {f}: {s}".format(n=e.errno,
-                f=e.filename, s=e.strerror))
+        dir = os.path.dirname(file_path)
+        if dir and not os.path.isdir(dir):
+            try:
+                os.makedirs(dir,  0700)
+            except OSError as e:
+                print("Error {n} creating folder {f}: {s}".format(
+                    n=e.errno,
+                    f=dir,
+                    s=e.strerror))
         try:
             f = open(file_path, 'w')
             f.write(content)
@@ -207,14 +224,16 @@ class Drive(object):
                 e=e.strerror))
 
     def backup_file(self, file_path):
-        """Backups an existing file to BACKUP_FOLDER
+        """Move an existing file to BACKUP_FOLDER
         """
         if not os.path.isdir(self.BACKUP_FOLDER):
             try:
                 os.makedirs(self.BACKUP_FOLDER,  0700)
             except OSError as e:
-                print("Error {n} creating folder {f}: {s}".format(n=e.errno,
-                    f=e.filename, s=e.strerror))
+                print("Error {n} creating folder {f}: {s}".format(
+                    n=e.errno,
+                    f=self.BACKUP_FOLDER,
+                    s=e.strerror))
         backup_date = datetime.datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
         dst_path = os.path.join(self.BACKUP_FOLDER, backup_date + "-" + os.path.basename(file_path))
         print("Making backup of {s} in {d}".format(
@@ -231,36 +250,46 @@ class Drive(object):
 
 
     def download_all(self):
-        """Downloads all the files retrieved from Drive
+        """Downloads all the files
         """
         for drive_file in self.drive_files:
             if drive_file.get('mimeType') not in self.IGNORE_MIMETYPES:
-                file_path = self.get_path(drive_file)
-                mtime = self.get_time(drive_file)
-                # Check if file exists locally, and if it's different,
-                # make backup and download
-                if os.path.isfile(file_path):
-                    (match_md5, match_mtime) = files_match(file_path, mtime, drive_file.get('md5Checksum'))
-                    if match_md5:
-                        if not match_mtime:
-                            print("Warning, mtime doesn't match for file: {file}".format(file=file_path))
-                            set_mtime(file_path, mtime)
-                        continue
-                    else:
-                        if os.path.dirname(file_path) != self.TRASH_FOLDER:
-                            print("Local file {f} has been modified (Drive file md5: {m} )".format(
-                                    f=file_path,
-                                    m=drive_file.get('md5Checksum')))
-                            self.backup_file(file_path)
-                print("Downloading file: {file}".format(file=file_path))
-                content = self.download_file(drive_file)
-                if content is not None:
-                    self.save_file(content, file_path, mtime)
+                if not self.file_exists_in_local(drive_file):
+                    file_path = self.get_path(drive_file)
+                    mtime = self.get_time(drive_file)
+                    print("Downloading file: {file}".format(file=file_path))
+                    content = self.download_file(drive_file)
+                    if content is not None:
+                        self.save_file(content, file_path, mtime)
         print("Download finished.")
+
+    def file_exists_in_local(self, drive_file):
+        """Checks if a Drive file exists in our local tree.
+        This function can modify the local file to match Drive's mtime
+
+        Returns True or False"""
+        file_path = self.get_path(drive_file)
+        drive_mtime = self.get_time(drive_file)
+        if os.path.isfile(file_path):
+            (md5_ok, mtime_ok) = files_match(file_path, drive_mtime,
+                                             drive_file.get('md5Checksum'))
+            if md5_ok:
+                if not mtime_ok:
+                    print("Warning, mtime doesn't match. Updating file: {file}".format(
+                            file=file_path))
+                    set_mtime(file_path, drive_mtime)
+                return True
+            else:
+                print("Local file {f} has been modified (Drive file md5: {m} )".format(
+                        f=file_path,
+                        m=drive_file.get('md5Checksum')))
+                return False
+
 
     def file_exists_in_drive(self, file_path):
         """Check if a local file exits in Drive
-        returns a boolean"""
+
+        Returns True or False"""
         md5 = md5_for_file(file_path)
         exists = False
         for f in self.drive_files:
@@ -312,7 +341,13 @@ class Drive(object):
 def set_mtime(file_path, mtime):
     """Sets the modification time of a file
     """
-    os.utime(file_path, (time.mktime(mtime), time.mktime(mtime)))
+    try:
+        os.utime(file_path, (time.mktime(mtime), time.mktime(mtime)))
+    except OSError as e:
+        print("Error {n} updating the mtime of the file {f}: {e}".format(
+            n=e.errno,
+            f=e.filename,
+            e=e.strerror))
 
 
 def md5_for_file(file_path):
@@ -388,6 +423,19 @@ def main(argv):
     signal.signal(signal.SIGTERM, signal_handler)
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGHUP, signal_handler)
+
+    opendocument_conv = {u'application/vnd.google-apps.document': u'application/vnd.oasis.opendocument.text',
+                         u'application/vnd.google-apps.spreadsheet': u'application/x-vnd.oasis.opendocument.spreadsheet',
+                         u'application/vnd.google-apps.drawing': u'image/svg+xml',
+                         u'application/vnd.google-apps.presentation': 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+                         }
+
+    pdf_conv = {u'application/vnd.google-apps.document': u'application/pdf',
+                u'application/vnd.google-apps.spreadsheet': u'application/pdf',
+                u'application/vnd.google-apps.drawing': u'application/pdf',
+                u'application/vnd.google-apps.presentation': u'application/pdf'
+                }
+
     client_secrets_default = os.path.join(os.path.abspath(os.path.dirname(__file__)),
                                           "client_secrets.json")
     client_secrets_help = """JSON file with your Google Drive API credentials.
@@ -397,7 +445,12 @@ def main(argv):
     working_dir_default = os.getcwd()
     working_dir_help = """Root directory to download your Drive content.
     (default: the current directory)"""
-    
+
+    convert_choices = ["opendocument", "pdf"]
+    convert_default = "opendocument"
+    convert_help = """Which format convert the Google documents to (opendocument|pdf)
+    (default: opendocument)"""
+
     program_description = """Drive downloader is a program to download the
     contents of your Google Drive account."""
     
@@ -407,6 +460,9 @@ def main(argv):
                         default=working_dir_default)
     parser.add_argument("-c", "--client-secrets", help=client_secrets_help,
                         default=client_secrets_default)
+    parser.add_argument("-o", "--convert", help=convert_help,
+                        choices=convert_choices,
+                        default=convert_default)
     args = parser.parse_args()
     
     print("Working dir: {dir}".format(dir=os.path.abspath(args.working_dir)))
@@ -415,8 +471,15 @@ def main(argv):
     os.chdir(os.path.abspath(args.working_dir))
     if lock():
         print("Lock file acquired")
+        if args.convert == "opendocument":
+            conv = opendocument_conv
+        elif args.convert == "pdf":
+            conv = pdf_conv
+        else:
+            print("Unknown conversion option: {c}".format(c=args.convert))
         try:
-            drive_service = Drive(client_secrets=os.path.abspath(args.client_secrets))
+            drive_service = Drive(client_secrets=os.path.abspath(args.client_secrets),
+                                  conversion=conv)
             print("Authorizing...")
             drive_service.authorize()
             print("Retrieving file list...")

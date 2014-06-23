@@ -209,7 +209,7 @@ class Drive(object):
             except OSError as e:
                 print("Error {n} creating folder {f}: {s}".format(
                     n=e.errno,
-                    f=dir,
+                    f=dir.encode('utf-8'),
                     s=e.strerror))
         try:
             f = open(file_path, 'w')
@@ -220,7 +220,7 @@ class Drive(object):
         except IOError as e:
             print("Error {n} writing file {f}: {e}".format(
                 n=e.errno,
-                f=e.filename,
+                f=e.filename.encode('utf-8'),
                 e=e.strerror))
 
     def backup_file(self, file_path):
@@ -232,7 +232,7 @@ class Drive(object):
             except OSError as e:
                 print("Error {n} creating folder {f}: {s}".format(
                     n=e.errno,
-                    f=self.BACKUP_FOLDER,
+                    f=self.BACKUP_FOLDER.encode('utf-8'),
                     s=e.strerror))
         backup_date = datetime.datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
         dst_path = os.path.join(self.BACKUP_FOLDER, backup_date + "-" + os.path.basename(file_path))
@@ -257,7 +257,7 @@ class Drive(object):
                 if not self.file_exists_in_local(drive_file):
                     file_path = self.get_path(drive_file)
                     mtime = self.get_time(drive_file)
-                    print("Downloading file: {file}".format(file=file_path))
+                    print("Downloading file: {file}".format(file=file_path.encode('utf-8')))
                     content = self.download_file(drive_file)
                     if content is not None:
                         self.save_file(content, file_path, mtime)
@@ -276,13 +276,13 @@ class Drive(object):
             if md5_ok:
                 if not mtime_ok:
                     print("Warning, mtime doesn't match. Updating file: {file}".format(
-                            file=file_path))
+                            file=file_path.encode('utf-8')))
                     set_mtime(file_path, drive_mtime)
                 return True
             else:
                 print("Local file {f} has been modified (Drive file md5: {m} )".format(
                         f=file_path,
-                        m=drive_file.get('md5Checksum')))
+                        m=drive_file.get('md5Checksum').encode('utf-8')))
                 return False
 
 
@@ -346,7 +346,7 @@ def set_mtime(file_path, mtime):
     except OSError as e:
         print("Error {n} updating the mtime of the file {f}: {e}".format(
             n=e.errno,
-            f=e.filename,
+            f=e.filename.encode('utf-8'),
             e=e.strerror))
 
 
@@ -374,7 +374,7 @@ def files_match(file_path, mtime, md5sum):
     except IOError as e:
         print("Error {n} reading file {f}: {e}".format(
             n=e.errno,
-            f=e.filename,
+            f=e.filename.encode('utf-8'),
             e=e.strerror))
         return False
     if md5 == md5sum:

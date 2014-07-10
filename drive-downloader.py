@@ -237,8 +237,8 @@ class Drive(object):
         backup_date = datetime.datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
         dst_path = os.path.join(self.BACKUP_FOLDER, backup_date + "-" + os.path.basename(file_path))
         print("Making backup of {s} in {d}".format(
-                s=file_path,
-                d=dst_path))
+                s=file_path.encode('utf-8'),
+                d=dst_path.encode('utf-8')))
         try:
             shutil.move(file_path, dst_path)
         except IOError as e:

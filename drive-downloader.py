@@ -280,9 +280,8 @@ class Drive(object):
                     set_mtime(file_path, drive_mtime)
                 return True
             else:
-                print("Local file {f} has been modified (Drive file md5: {m} )".format(
-                        f=file_path,
-                        m=drive_file.get('md5Checksum').encode('utf-8')))
+                print("Local file {f} has been modified".format(
+                        f=file_path.encode('utf-8')))
                 return False
 
 

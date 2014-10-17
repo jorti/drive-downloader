@@ -17,6 +17,10 @@ Command line arguments:
 
 usage: drive-downloader.py [-h] [-w WORKING_DIR] [-c CLIENT_SECRETS]
                            [-o {opendocument,pdf}]
+                           [-l {debug,info,warning,error,critical}]
+
+Drive downloader is a program to download the contents of your Google Drive
+account.
 
 optional arguments:
   -h, --help            show this help message and exit
@@ -30,4 +34,6 @@ optional arguments:
   -o {opendocument,pdf}, --convert {opendocument,pdf}
                         Which format convert the Google documents to
                         (opendocument|pdf) (default: opendocument)
+  -l {debug,info,warning,error,critical}, --log-level {debug,info,warning,error,critical}
+                        Verbosity level
 ```

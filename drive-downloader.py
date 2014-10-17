@@ -31,8 +31,8 @@ import hashlib
 import signal
 
 
-from apiclient.discovery import build
-from apiclient import errors
+from googleapiclient.discovery import build
+from googleapiclient import errors
 from oauth2client.client import flow_from_clientsecrets
 from oauth2client.file import Storage
 
@@ -134,11 +134,11 @@ class Drive(object):
         # https://code.google.com/p/google-api-python-client/issues/detail?id=231
         #
         #self.authorize()
-        mime = drive_file.get('mimeType')
+        mime = drive_file['mimeType']
         if mime in self.conversion.keys():
-            download_url = drive_file.get('exportLinks')[self.conversion[mime]]
+            download_url = drive_file['exportLinks'][self.conversion[mime]]
         else:
-            download_url = drive_file.get('downloadUrl')
+            download_url = drive_file['downloadUrl']
         if download_url:
             resp, content = self.drive_service._http.request(download_url)
             if resp.status == 200:
@@ -158,7 +158,10 @@ class Drive(object):
     def isTrashed(self, drive_file):
         """ Returns True or False if the file is in the Trash
         """
-        return drive_file.get('labels')['trashed']
+        if drive_file is None or drive_file['labels']['trashed'] is None:
+            return True
+        else:
+            return False
 
 
     def parentIsRoot(self, drive_file):

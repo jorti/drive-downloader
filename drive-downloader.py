@@ -168,7 +168,7 @@ class Drive(object):
     def get_time(self, drive_file):
         """ Returns a datetime object with the modified date of the file
         """
-        return time.strptime(drive_file.get('modifiedDate'),'%Y-%m-%dT%H:%M:%S.%fZ')
+        return time.strptime(drive_file['modifiedDate'],'%Y-%m-%dT%H:%M:%S.%fZ')
 
     def isTrashed(self, drive_file):
         """ Returns True or False if the file is in the Trash
@@ -183,7 +183,7 @@ class Drive(object):
         """ Returns True if parent folder is Root
         """
         if drive_file['parents']:
-            return drive_file.get('parents')[0]['isRoot']
+            return drive_file['parents'][0]['isRoot']
         else:
             return False
 
@@ -193,7 +193,7 @@ class Drive(object):
         Returns None if not found
         """
         for drive_file in self.drive_files:
-            if drive_file.get('id') == drive_file_id:
+            if drive_file['id'] == drive_file_id:
                 return drive_file
         return None
 
@@ -271,14 +271,15 @@ class Drive(object):
         """Downloads all the files
         """
         for drive_file in self.drive_files:
-            if drive_file.get('mimeType') not in self.IGNORE_MIMETYPES:
-                if not self.file_exists_in_local(drive_file):
-                    file_path = self.get_path(drive_file)
-                    mtime = self.get_time(drive_file)
-                    print("Downloading file: {file}".format(file=file_path.encode('utf-8')))
-                    content = self.download_file(drive_file)
-                    if content is not None:
-                        self.save_file(content, file_path, mtime)
+            if drive_file['mimeType'] not in self.IGNORE_MIMETYPES:
+                if not self.isTrashed(drive_file):
+                    if not self.file_exists_in_local(drive_file):
+                        file_path = self.get_path(drive_file)
+                        mtime = self.get_time(drive_file)
+                        print("Downloading file: {f}".format(f=file_path.encode('utf-8')))
+                        content = self.download_file(drive_file)
+                        if content is not None:
+                            self.save_file(content, file_path, mtime)
         print("Download finished.")
 
     def file_exists_in_local(self, drive_file):
@@ -290,7 +291,7 @@ class Drive(object):
         drive_mtime = self.get_time(drive_file)
         if os.path.isfile(file_path):
             (md5_ok, mtime_ok) = files_match(file_path, drive_mtime,
-                                             drive_file.get('md5Checksum'))
+                                             drive_file['md5Checksum'])
             if md5_ok:
                 if not mtime_ok:
                     print("Warning, mtime doesn't match. Updating file: {file}".format(
@@ -298,7 +299,7 @@ class Drive(object):
                     set_mtime(file_path, drive_mtime)
                 return True
             else:
-                print("Local file {f} has been modified".format(
+                print("md5 mismatch. Local file {f} has been modified".format(
                         f=file_path.encode('utf-8')))
                 return False
 

@@ -30,7 +30,6 @@ import shutil
 import hashlib
 import signal
 
-
 from googleapiclient.discovery import build
 from googleapiclient import errors
 from oauth2client.client import flow_from_clientsecrets
@@ -65,6 +64,7 @@ class Drive(object):
                        u'application/vnd.openxmlformats-officedocument.presentationml.presentation': u'.odp',
                        u'application/pdf': u'.pdf'
                        }
+    FALLBACK_MIMETYPE = u'application/pdf'
 
     def __init__(self, client_secrets, conversion):
         # Check https://developers.google.com/drive/scopes for all available scopes
@@ -119,6 +119,21 @@ class Drive(object):
                 print("An error occurred: {e}".format(e=error))
                 break
 
+    def resolve_final_mime(self, drive_file):
+        """Analyzes a drive_file and returns a tuple with the final mime type,
+        extension and a boolean (True=convert, False=do not convert)."""
+        mime = drive_file['mimeType']
+        convert = False
+        if mime in self.conversion.keys():
+            if self.conversion[mime] in drive_file['exportLinks'].keys():
+                mime = self.conversion[mime]
+            else:
+                mime = self.FALLBACK_MIMETYPE
+            extension = self.MIME_EXTENSIONS[mime]
+            convert = True
+        else:
+            extension = drive_file['fileExtension']
+        return (mime, extension, convert)
 
     def download_file(self, drive_file):
         """Download a file's content.
@@ -134,9 +149,9 @@ class Drive(object):
         # https://code.google.com/p/google-api-python-client/issues/detail?id=231
         #
         #self.authorize()
-        mime = drive_file['mimeType']
-        if mime in self.conversion.keys():
-            download_url = drive_file['exportLinks'][self.conversion[mime]]
+        (mime, extension, convert) = self.resolve_final_mime(drive_file)
+        if convert:
+            download_url = drive_file['exportLinks'][mime]
         else:
             download_url = drive_file['downloadUrl']
         if download_url:
@@ -186,18 +201,18 @@ class Drive(object):
         """ Returns the path of a file, with the name of the file included
         """
         if self.isTrashed(drive_file):
-            file_path = os.path.join(self.TRASH_FOLDER, drive_file.get('title'))
+            file_path = os.path.join(self.TRASH_FOLDER, drive_file['title'])
         elif self.parentIsRoot(drive_file):
-            file_path = drive_file.get('title')
-        elif drive_file.get('parents'):
-            parentId = drive_file.get('parents')[0]['id']
+            file_path = drive_file['title']
+        elif drive_file['parents']:
+            parentId = drive_file['parents'][0]['id']
             file_path = os.path.join(self.get_path(self.get_drive_file_from_id(parentId)),
-                                drive_file.get('title'))
+                                drive_file['title'])
+        elif drive_file['mimeType'] in self.conversion.keys():
+            (mime, extension, convert) = self.resolve_final_mime(drive_file)
+            file_path = drive_file['title'] + extension
         else:
-            file_path = drive_file.get('title')
-        mime = drive_file.get('mimeType')
-        if mime in self.conversion.keys():
-            file_path = file_path + self.MIME_EXTENSIONS[self.conversion[mime]]
+            file_path = drive_file['title']
         return file_path
 
 
@@ -484,11 +499,11 @@ def main(argv):
                                   conversion=conv)
             print("Authorizing...")
             drive_service.authorize()
-            print("Retrieving file list...")
+            print("Retrieving the file list...")
             drive_service.get_filelist()
-            print("Cleaning local tree...")
+            print("Cleaning up the local tree...")
             drive_service.clean_local_tree()
-            print("Downloading files...")
+            print("Downloading the files...")
             drive_service.download_all()
             unlock()
         except:

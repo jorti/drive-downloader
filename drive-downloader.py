@@ -29,6 +29,7 @@ import time
 import shutil
 import hashlib
 import signal
+import logging
 
 from googleapiclient.discovery import build
 from googleapiclient import errors
@@ -116,7 +117,7 @@ class Drive(object):
                 if not page_token:
                     break
             except errors.HttpError, error:
-                print("An error occurred: {e}".format(e=error))
+                logging.error("An error occurred: {e}".format(e=error))
                 break
 
     def resolve_final_mime(self, drive_file):
@@ -155,11 +156,15 @@ class Drive(object):
         else:
             download_url = drive_file['downloadUrl']
         if download_url:
+            if convert:
+                logging.info("Downloading converted file: {f}".format(f=drive_file['title'].encode('utf-8')))
+            else:
+                logging.info("Downloading file: {f}".format(f=drive_file['title'].encode('utf-8')))
             resp, content = self.drive_service._http.request(download_url)
             if resp.status == 200:
                 return content
             else:
-                print("An error occurred: {e}".format(e=resp))
+                logging.error("An error occurred: {e}".format(e=resp))
                 return None
         else:
             # The file doesn't have any content stored on Drive.
@@ -174,6 +179,7 @@ class Drive(object):
         """ Returns True or False if the file is in the Trash
         """
         if drive_file is None or drive_file['labels']['trashed'] is None:
+            logging.debug("Drive file {f} is trashed".format(f=drive_file['title'].encode('utf-8')))
             return True
         else:
             return False
@@ -225,18 +231,20 @@ class Drive(object):
             try:
                 os.makedirs(dir,  0700)
             except OSError as e:
-                print("Error {n} creating folder {f}: {s}".format(
+                logging.error("Error {n} creating folder {f}: {s}".format(
                     n=e.errno,
                     f=dir.encode('utf-8'),
                     s=e.strerror))
         try:
+            logging.debug("Writing file {f} to disk".format(f=file_path.encode('utf-8')))
             f = open(file_path, 'w')
             f.write(content)
             f.close()
             # Set mtime to match Drive
+            logging.debug("Setting mtime of file {f}".format(f=file_path.encode('utf-8')))
             set_mtime(file_path, mtime)
         except IOError as e:
-            print("Error {n} writing file {f}: {e}".format(
+            logging.error("Error {n} writing file {f}: {e}".format(
                 n=e.errno,
                 f=e.filename.encode('utf-8'),
                 e=e.strerror))
@@ -248,22 +256,23 @@ class Drive(object):
             try:
                 os.makedirs(self.BACKUP_FOLDER,  0700)
             except OSError as e:
-                print("Error {n} creating folder {f}: {s}".format(
+                logging.error("Error {n} creating folder {f}: {s}".format(
                     n=e.errno,
                     f=self.BACKUP_FOLDER.encode('utf-8'),
                     s=e.strerror))
         backup_date = datetime.datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
         dst_path = os.path.join(self.BACKUP_FOLDER, backup_date + "-" + os.path.basename(file_path))
-        print("Making backup of {s} in {d}".format(
+        logging.info("Making backup of {s} in {d}".format(
                 s=file_path.encode('utf-8'),
                 d=dst_path.encode('utf-8')))
         try:
             shutil.move(file_path, dst_path)
+            logging.debug("File {f} deleted".format(f=file_path.encode('utf-8')))
         except IOError as e:
-            print("Error {n} moving file {src} to {dst}: {e}".format(
+            logging.error("Error {n} moving file {src} to {dst}: {e}".format(
                 n=e.errno,
-                src=file_path,
-                dst=dst_path,
+                src=file_path.encode('utf-8'),
+                dst=dst_path.encode('utf-8'),
                 e=e.strerror))
 
 
@@ -276,11 +285,9 @@ class Drive(object):
                     if not self.file_exists_in_local(drive_file):
                         file_path = self.get_path(drive_file)
                         mtime = self.get_time(drive_file)
-                        print("Downloading file: {f}".format(f=file_path.encode('utf-8')))
                         content = self.download_file(drive_file)
                         if content is not None:
                             self.save_file(content, file_path, mtime)
-        print("Download finished.")
 
     def file_exists_in_local(self, drive_file):
         """Checks if a Drive file exists in our local tree.
@@ -294,12 +301,14 @@ class Drive(object):
                                              drive_file['md5Checksum'])
             if md5_ok:
                 if not mtime_ok:
-                    print("Warning, mtime doesn't match. Updating file: {file}".format(
-                            file=file_path.encode('utf-8')))
+                    logging.warning("Local file {f} mtime doesn't match with remote mtime: {f}".format(
+                            f=file_path.encode('utf-8')))
                     set_mtime(file_path, drive_mtime)
-                return True
+                    return True
+                else:
+                    return True
             else:
-                print("md5 mismatch. Local file {f} has been modified".format(
+                logging.warning("Local file {f} md5 doesn't match with remote md5".format(
                         f=file_path.encode('utf-8')))
                 return False
 
@@ -350,6 +359,8 @@ class Drive(object):
                 if root == u'.' and self.is_system_dir(d):
                     continue
                 try:
+                    logging.debug("Removing unused directory {d}".format(
+                                d=os.path.join(root, d).encode('utf-8')))
                     os.rmdir(os.path.join(root, d))
                 except OSError:
                     pass
@@ -362,7 +373,7 @@ def set_mtime(file_path, mtime):
     try:
         os.utime(file_path, (time.mktime(mtime), time.mktime(mtime)))
     except OSError as e:
-        print("Error {n} updating the mtime of the file {f}: {e}".format(
+        logging.error("Error {n} updating the mtime of the file {f}: {e}".format(
             n=e.errno,
             f=e.filename.encode('utf-8'),
             e=e.strerror))
@@ -390,7 +401,7 @@ def files_match(file_path, mtime, md5sum):
     try:
         md5 = md5_for_file(file_path)
     except IOError as e:
-        print("Error {n} reading file {f}: {e}".format(
+        logging.error("Error {n} reading file {f}: {e}".format(
             n=e.errno,
             f=e.filename.encode('utf-8'),
             e=e.strerror))
@@ -469,6 +480,10 @@ def main(argv):
     convert_help = """Which format convert the Google documents to (opendocument|pdf)
     (default: opendocument)"""
 
+    loglevel_choices = ["debug", "info", "warning", "error", "critical"]
+    loglevel_default = "info"
+    loglevel_help = """Verbosity level"""
+
     program_description = """Drive downloader is a program to download the
     contents of your Google Drive account."""
     
@@ -481,14 +496,25 @@ def main(argv):
     parser.add_argument("-o", "--convert", help=convert_help,
                         choices=convert_choices,
                         default=convert_default)
+    parser.add_argument("-l", "--log-level", help=loglevel_help,
+                        choices=loglevel_choices,
+                        default=loglevel_default)
     args = parser.parse_args()
+
+    # assuming loglevel is bound to the string value obtained from the
+    # command line argument. Convert to upper case to allow the user to
+    # specify --log=DEBUG or --log=debug
+    numeric_level = getattr(logging, args.log_level.upper(), None)
+    if not isinstance(numeric_level, int):
+        raise ValueError('Invalid log level: %s' % loglevel)
+    logging.basicConfig(level=numeric_level)
     
-    print("Working dir: {dir}".format(dir=os.path.abspath(args.working_dir)))
-    print("Client secrets: {secrets}".format(secrets=args.client_secrets))
+    logging.debug("Working dir: {dir}".format(dir=os.path.abspath(args.working_dir)))
+    logging.debug("Client secrets: {secrets}".format(secrets=args.client_secrets))
 
     os.chdir(os.path.abspath(args.working_dir))
     if lock():
-        print("Lock file acquired")
+        logging.debug("Lock file acquired")
         if args.convert == "opendocument":
             conv = opendocument_conv
         elif args.convert == "pdf":
@@ -498,20 +524,20 @@ def main(argv):
         try:
             drive_service = Drive(client_secrets=os.path.abspath(args.client_secrets),
                                   conversion=conv)
-            print("Authorizing...")
+            logging.info("Authorizing...")
             drive_service.authorize()
-            print("Retrieving the file list...")
+            logging.info("Retrieving the file list...")
             drive_service.get_filelist()
-            print("Cleaning up the local tree...")
+            logging.info("Cleaning up the local tree...")
             drive_service.clean_local_tree()
-            print("Downloading the files...")
+            logging.info("Downloading the files...")
             drive_service.download_all()
             unlock()
         except:
             unlock()
             raise
     else:
-        print("Failed to acquire lock file")
+        logging.error("Failed to acquire lock file")
     os.chdir(working_dir_default)
 
 if __name__ == '__main__':

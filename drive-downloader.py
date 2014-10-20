@@ -28,9 +28,9 @@ import datetime
 import time
 import shutil
 import hashlib
-import signal
 import logging
 
+from lockfile import LockFile
 from googleapiclient.discovery import build
 from googleapiclient import errors
 from oauth2client.client import flow_from_clientsecrets
@@ -327,7 +327,7 @@ class Drive(object):
 
     def is_system_file(self, file):
         """Returns true if it is a system file, otherwise, false"""
-        sysfiles = [ self.OAUTH2_STORAGE, LOCK_FILE, u'.directory' ]
+        sysfiles = [ self.OAUTH2_STORAGE, u'.directory' ]
         for f in sysfiles:
             if file == f:
                 return True
@@ -417,42 +417,11 @@ def files_match(file_path, mtime, md5sum):
     return (match_md5, match_mtime)
 
 
-def lock():
-    global LOCK_FILE
-    if os.path.isfile(LOCK_FILE):
-        return False
-    else:
-        try:
-            f = open(LOCK_FILE, 'a')
-            f.close()
-        except IOError:
-            return False
-        return True
-        
-def unlock():
-    global LOCK_FILE
-    if os.path.isfile(LOCK_FILE):
-        try:
-            os.remove(LOCK_FILE)
-        except IOError:
-            return False
-    return True
-
-def signal_handler(signal, frame):
-    unlock()
-    sys.exit(0)
-
-
-# Global variable used to catch interruptions
-LOCK_FILE = u'.drive-downloader.lock'
-
-
 def main(argv):
-    global LOCK_FILE
-    signal.signal(signal.SIGTERM, signal_handler)
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGHUP, signal_handler)
-
+    base_lockfile = os.path.join('/var/run/user', str(os.getuid()))
+    if not os.path.isdir(base_lockfile):
+        base_lockfile = '/tmp'
+    lockfile = os.path.join(base_lockfile, '.drive-downloader')
     opendocument_conv = {u'application/vnd.google-apps.document': u'application/vnd.oasis.opendocument.text',
                          u'application/vnd.google-apps.spreadsheet': u'application/x-vnd.oasis.opendocument.spreadsheet',
                          u'application/vnd.google-apps.drawing': u'image/svg+xml',
@@ -508,36 +477,29 @@ def main(argv):
     if not isinstance(numeric_level, int):
         raise ValueError('Invalid log level: %s' % loglevel)
     logging.basicConfig(level=numeric_level)
-    
     logging.debug("Working dir: {dir}".format(dir=os.path.abspath(args.working_dir)))
     logging.debug("Client secrets: {secrets}".format(secrets=args.client_secrets))
-
+    logging.debug("Lock file: {f}".format(f=lockfile))
     os.chdir(os.path.abspath(args.working_dir))
-    if lock():
-        logging.debug("Lock file acquired")
+    lock = LockFile(lockfile)
+    with lock:
+        logging.debug("Lock file acquired: {f}".format(f=lock.path))
         if args.convert == "opendocument":
             conv = opendocument_conv
         elif args.convert == "pdf":
             conv = pdf_conv
         else:
             print("Unknown conversion option: {c}".format(c=args.convert))
-        try:
-            drive_service = Drive(client_secrets=os.path.abspath(args.client_secrets),
-                                  conversion=conv)
-            logging.info("Authorizing...")
-            drive_service.authorize()
-            logging.info("Retrieving the file list...")
-            drive_service.get_filelist()
-            logging.info("Cleaning up the local tree...")
-            drive_service.clean_local_tree()
-            logging.info("Downloading the files...")
-            drive_service.download_all()
-            unlock()
-        except:
-            unlock()
-            raise
-    else:
-        logging.error("Failed to acquire lock file")
+        drive_service = Drive(client_secrets=os.path.abspath(args.client_secrets),
+                              conversion=conv)
+        logging.info("Authorizing...")
+        drive_service.authorize()
+        logging.info("Retrieving the file list...")
+        drive_service.get_filelist()
+        logging.info("Cleaning up the local tree...")
+        drive_service.clean_local_tree()
+        logging.info("Downloading the files...")
+        drive_service.download_all()
     os.chdir(working_dir_default)
 
 if __name__ == '__main__':
